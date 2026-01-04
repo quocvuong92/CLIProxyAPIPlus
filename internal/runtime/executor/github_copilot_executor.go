@@ -17,6 +17,7 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -94,7 +95,16 @@ func (e *GitHubCopilotExecutor) Execute(ctx context.Context, auth *cliproxyauth.
 	if err != nil {
 		return resp, err
 	}
-	e.applyHeaders(httpReq, apiToken)
+	isAgent := false
+	gjson.GetBytes(req.Payload, "messages").ForEach(func(key, value gjson.Result) bool {
+		role := value.Get("role").String()
+		if role == "assistant" || role == "tool" {
+			isAgent = true
+			return false
+		}
+		return true
+	})
+	e.applyHeaders(httpReq, apiToken, isAgent)
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
@@ -184,7 +194,16 @@ func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 	if err != nil {
 		return nil, err
 	}
-	e.applyHeaders(httpReq, apiToken)
+	isAgent := false
+	gjson.GetBytes(req.Payload, "messages").ForEach(func(key, value gjson.Result) bool {
+		role := value.Get("role").String()
+		if role == "assistant" || role == "tool" {
+			isAgent = true
+			return false
+		}
+		return true
+	})
+	e.applyHeaders(httpReq, apiToken, isAgent)
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
@@ -347,7 +366,7 @@ func (e *GitHubCopilotExecutor) ensureAPIToken(ctx context.Context, auth *clipro
 }
 
 // applyHeaders sets the required headers for GitHub Copilot API requests.
-func (e *GitHubCopilotExecutor) applyHeaders(r *http.Request, apiToken string) {
+func (e *GitHubCopilotExecutor) applyHeaders(r *http.Request, apiToken string, isAgent bool) {
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Authorization", "Bearer "+apiToken)
 	r.Header.Set("Accept", "application/json")
@@ -357,6 +376,12 @@ func (e *GitHubCopilotExecutor) applyHeaders(r *http.Request, apiToken string) {
 	r.Header.Set("Openai-Intent", copilotOpenAIIntent)
 	r.Header.Set("Copilot-Integration-Id", copilotIntegrationID)
 	r.Header.Set("X-Request-Id", uuid.NewString())
+
+	initiator := "user"
+	if isAgent {
+		initiator = "agent"
+	}
+	r.Header.Set("X-Initiator", initiator)
 }
 
 // normalizeModel is a no-op as GitHub Copilot accepts model names directly.
